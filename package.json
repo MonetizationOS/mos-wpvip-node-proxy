@@ -1,24 +1,24 @@
 {
-  "name": "vip-go-node-skeleton",
-  "version": "0.0.1",
-  "description": "A Node.js application skeleton for WordPress VIP",
-  "main": "src/index.js",
-  "scripts": {
-    "build": "echo 'No build step! For more information, see:\nhttps://docs.wpvip.com/technical-references/node-js/building-applications/'",
-    "start": "node ./src/index.js",
-    "test": "node --test src",
-    "validate": "npx @automattic/vip-go-preflight-checks"
-  },
-  "repository": {
-    "type": "git",
-    "url": "git+https://github.com/Automattic/vip-go-node-skeleton.git"
-  },
-  "author": "WordPress VIP",
-  "license": "ISC",
-  "bugs": {
-    "url": "https://github.com/Automattic/vip-go-node-skeleton/issues"
-  },
-  "homepage": "https://github.com/Automattic/vip-go-node-skeleton#readme",
-  "dependencies": {},
-  "devDependencies": {}
+    "name": "mos-testing-node",
+    "version": "0.0.1",
+    "description": "MonetizationOS Node.js proxy middleware for WordPress VIP",
+    "packageManager": "pnpm@10.12.1",
+    "scripts": {
+        "build": "tsc --noEmit && esbuild src/server.ts src/index.ts --bundle --platform=node --format=cjs --outdir=dist --external:html-rewriter-wasm",
+        "start": "node dist/server.js",
+        "dev": "node --env-file=.env dist/server.js",
+        "dev:multi-domain": "node --env-file=.env dist/server.js --domain-map ./config/domain-map.json",
+        "test": "vitest run",
+        "validate": "pnpm dlx @automattic/vip-go-preflight-checks"
+    },
+    "dependencies": {
+        "@monetizationos/proxy": "1.5.0",
+        "@types/node": "^25.9.1",
+        "esbuild": "^0.28.0",
+        "html-rewriter-wasm": "^0.4.1",
+        "typescript": "^6.0.3"
+    },
+    "devDependencies": {
+        "vitest": "^4.1.7"
+    }
 }
