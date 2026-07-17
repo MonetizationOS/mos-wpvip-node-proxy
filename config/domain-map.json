@@ -1,0 +1,12 @@
+{
+    "mos-testing-node.go-vip.net": {
+        "originUrl": "https://news.wingorigin.dev",
+        "surfaceSlug": "web",
+        "mosSecretKeyEnvVar": "MONETIZATION_OS_SECRET_KEY_WINGORIGIN"
+    },
+    "another.example.com": {
+        "originUrl": "https://other-origin.example",
+        "surfaceSlug": "other-web",
+        "mosSecretKeyEnvVar": "MONETIZATION_OS_SECRET_KEY_OTHER"
+    }
+}
