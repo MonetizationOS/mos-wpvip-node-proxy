@@ -6,8 +6,16 @@ yarn-error.log*
 # Dependency directories
 node_modules/
 
-# Optional npm cache directory
+# Package manager caches
 .npm
+.pnpm-store
 
 # next.js build output
 .next
+
+# TypeScript build output (generated at deploy time by pnpm run build)
+dist/
+
+# Local environment variables (contains secrets)
+.env
+.env.local

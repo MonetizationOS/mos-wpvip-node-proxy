@@ -1,0 +1,10 @@
+# TypeScript source — only compiled dist/ is needed at runtime
+src/
+test/
+tsconfig.json
+vitest.config.ts
+
+# Development
+node_modules/
+.npm
+README.md
