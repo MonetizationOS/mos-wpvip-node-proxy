@@ -23,22 +23,36 @@ const HOP_BY_HOP = new Set([
     'upgrade',
 ])
 
+// Public-host headers must not be forwarded to ORIGIN_URL. VIP serves HTML for an
+// unrecognized Host but returns empty 404s for /wp-content/uploads and similar file paths.
+const ORIGIN_HOST_HEADERS = new Set(['host', 'x-forwarded-host'])
+
 /**
- * Origin fetcher adapted for Node.js:
+ * Build the Request used for the upstream origin fetch.
  * - Strips hop-by-hop headers rejected by undici.
+ * - Strips Host / X-Forwarded-Host so undici derives Host from the origin URL.
  * - Forces identity encoding so HTML bodies are always plain text after the origin fetch.
  */
+export function buildNodeOriginRequest(request: Request): Request {
+    const headers = new Headers()
+    request.headers.forEach((value, name) => {
+        const lower = name.toLowerCase()
+        if (HOP_BY_HOP.has(lower) || ORIGIN_HOST_HEADERS.has(lower)) {
+            return
+        }
+        headers.set(name, value)
+    })
+    headers.delete('host')
+    headers.delete('x-forwarded-host')
+    headers.set('Accept-Encoding', 'identity')
+    return new Request(request, { headers })
+}
+
+/**
+ * Origin fetcher adapted for Node.js.
+ */
 function createNodeOriginFetcher(): Fetcher {
-    return async (request: Request): Promise<Response> => {
-        const headers = new Headers()
-        request.headers.forEach((value, name) => {
-            if (!HOP_BY_HOP.has(name.toLowerCase())) {
-                headers.set(name, value)
-            }
-        })
-        headers.set('Accept-Encoding', 'identity')
-        return fetch(new Request(request, { headers }))
-    }
+    return async (request: Request): Promise<Response> => fetch(buildNodeOriginRequest(request))
 }
 
 function parseOriginRequestHeaders(env: ProxyEnv): Record<string, string> | undefined {
