@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { ProxyEnv } from '../src/env'
-import { proxyFetch } from '../src/proxyHandler'
+import { buildNodeOriginRequest, proxyFetch } from '../src/proxyHandler'
 import { installProxyFetchMock } from './helpers'
 
 const baseEnv: ProxyEnv = {
@@ -68,6 +68,32 @@ describe('proxy config', () => {
                 },
             },
         })
+    })
+
+    it('strips public Host and X-Forwarded-Host so origin fetch uses the origin URL host', () => {
+        const headers = new Headers({
+            Host: 'monetisationos-com-develop.go-vip.net',
+            'X-Forwarded-Host': 'monetisationos-com-develop.go-vip.net',
+            'X-Keep': 'client-value',
+            Connection: 'keep-alive',
+        })
+        const incoming = new Request('https://reviewjournal-develop.go-vip.co/wp-content/uploads/x.png', {
+            headers,
+        })
+
+        // Node http IncomingMessage always exposes host; re-apply after Request construction
+        // in case the runtime treats Host as a forbidden header name.
+        incoming.headers.set('host', 'monetisationos-com-develop.go-vip.net')
+        incoming.headers.set('x-forwarded-host', 'monetisationos-com-develop.go-vip.net')
+
+        const originRequest = buildNodeOriginRequest(incoming)
+
+        expect(originRequest.url).toBe('https://reviewjournal-develop.go-vip.co/wp-content/uploads/x.png')
+        expect(originRequest.headers.get('host')).toBeNull()
+        expect(originRequest.headers.get('x-forwarded-host')).toBeNull()
+        expect(originRequest.headers.get('connection')).toBeNull()
+        expect(originRequest.headers.get('x-keep')).toBe('client-value')
+        expect(originRequest.headers.get('accept-encoding')).toBe('identity')
     })
 
     it('merges configured origin request headers and preserves untouched client headers', async () => {
