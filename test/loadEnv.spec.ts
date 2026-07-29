@@ -37,6 +37,15 @@ describe('loadEnvFromProcess', () => {
         })
     })
 
+    it('loads EXPOSE_PROXY_FINGERPRINT when set', () => {
+        for (const [key, value] of Object.entries(baseEnv)) {
+            vi.stubEnv(key, value)
+        }
+        vi.stubEnv('EXPOSE_PROXY_FINGERPRINT', '1')
+
+        expect(loadEnvFromProcess().EXPOSE_PROXY_FINGERPRINT).toBe('1')
+    })
+
     it('loads a domain map and resolves per-domain secret env vars', () => {
         const dir = mkdtempSync(join(tmpdir(), 'domain-map-'))
         const filePath = join(dir, 'domains.json')

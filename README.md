@@ -68,6 +68,24 @@ Example:
 {"X-Api-Key": "secret", "X-Custom": "my-value"}
 ```
 
+## Optional: proxy fingerprint header
+
+`EXPOSE_PROXY_FINGERPRINT` is a diagnostic flag (`1`, `true`, or `yes`). When enabled, every response that passes through this Node process includes `x-mos-proxy: 1`.
+
+Use it to tell VIP edge / File System responses from proxy hits — for example after deploying to develop:
+
+```bash
+vip @monetisationos-com.develop config envvar set EXPOSE_PROXY_FINGERPRINT
+# enter: 1
+
+curl -sI 'https://develop.reviewjournal.com/'
+# expect: x-mos-proxy: 1
+
+curl -sI 'https://develop.reviewjournal.com/wp-content/uploads/...'
+# if x-mos-proxy is missing, the request never reached Node
+```
+
+Turn the flag off when finished debugging.
 ## Commands
 
 - `pnpm run build` — Compile TypeScript to `dist/`.
@@ -228,6 +246,7 @@ vip @mos-testing-node.production config envvar set INJECT_SCRIPT_URL
 vip @mos-testing-node.production config envvar set SURFACE_DECISIONS_IGNORE_PATHS
 vip @mos-testing-node.production config envvar set SURFACE_DECISIONS_COOKIES
 vip @mos-testing-node.production config envvar set ORIGIN_REQUEST_HEADERS
+vip @mos-testing-node.production config envvar set EXPOSE_PROXY_FINGERPRINT
 ```
 
 To review what is currently set:

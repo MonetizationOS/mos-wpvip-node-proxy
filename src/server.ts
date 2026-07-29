@@ -4,8 +4,13 @@
  */
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http'
 import { Readable } from 'node:stream'
+import { isEnvFlagEnabled } from './envFlags.js'
 import { loadEnvFromProcess } from './loadEnv.js'
-import { writeHeadFromFetchResponse } from './outgoingNodeHeaders.js'
+import {
+    PROXY_FINGERPRINT_HEADER,
+    PROXY_FINGERPRINT_VALUE,
+    writeHeadFromFetchResponse,
+} from './outgoingNodeHeaders.js'
 import { parseServerCliArgs } from './parseArgs.js'
 import { createProxyFetch } from './proxyHandler.js'
 import type { ProxyEnv } from './env.js'
@@ -15,9 +20,11 @@ const port = Number(process.env.PORT ?? '8787')
 
 let handleRequest: (request: Request) => Promise<Response>
 let env: ProxyEnv
+let exposeProxyFingerprint = false
 try {
     const cli = parseServerCliArgs()
     env = loadEnvFromProcess({ domainMapFile: cli.domainMapFile })
+    exposeProxyFingerprint = isEnvFlagEnabled(env.EXPOSE_PROXY_FINGERPRINT)
     handleRequest = createProxyFetch(env)
 } catch (e) {
     console.error(e instanceof Error ? e.message : e)
@@ -32,6 +39,9 @@ try {
 createServer(async (req: IncomingMessage, res: ServerResponse) => {
     // WordPress VIP requires a health check at this path that returns 200 quickly.
     if (req.url?.startsWith('/cache-healthcheck')) {
+        if (exposeProxyFingerprint) {
+            res.setHeader(PROXY_FINGERPRINT_HEADER, PROXY_FINGERPRINT_VALUE)
+        }
         res.writeHead(200, { 'Content-Type': 'text/plain' })
         res.end('Ok')
         return
@@ -66,7 +76,7 @@ createServer(async (req: IncomingMessage, res: ServerResponse) => {
 
         const payload = response.body ? Buffer.from(await response.arrayBuffer()) : null
 
-        writeHeadFromFetchResponse(res, response)
+        writeHeadFromFetchResponse(res, response, { fingerprint: exposeProxyFingerprint })
 
         if (payload?.length) {
             res.end(payload)
@@ -76,6 +86,9 @@ createServer(async (req: IncomingMessage, res: ServerResponse) => {
     } catch (err) {
         console.error(err)
         if (!res.headersSent) {
+            if (exposeProxyFingerprint) {
+                res.setHeader(PROXY_FINGERPRINT_HEADER, PROXY_FINGERPRINT_VALUE)
+            }
             res.writeHead(500)
         }
         res.end('Internal Server Error')

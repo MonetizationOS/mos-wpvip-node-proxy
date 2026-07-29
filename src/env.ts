@@ -20,4 +20,9 @@ export interface ProxyEnv {
     SURFACE_DECISIONS_COOKIES?: string
     /** JSON object string of extra headers merged into every upstream origin request (e.g. `{"X-Api-Key":"secret"}`). */
     ORIGIN_REQUEST_HEADERS?: string
+    /**
+     * When truthy (`1` / `true` / `yes`), responses that pass through this Node process
+     * include `x-mos-proxy: 1` so you can tell VIP edge/File System responses from proxy hits.
+     */
+    EXPOSE_PROXY_FINGERPRINT?: string
 }

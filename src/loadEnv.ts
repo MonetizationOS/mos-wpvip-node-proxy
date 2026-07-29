@@ -28,6 +28,7 @@ export function loadEnvFromProcess(options: LoadEnvOptions = {}): ProxyEnv {
         SURFACE_DECISIONS_IGNORE_PATHS: process.env.SURFACE_DECISIONS_IGNORE_PATHS,
         SURFACE_DECISIONS_COOKIES: process.env.SURFACE_DECISIONS_COOKIES,
         ORIGIN_REQUEST_HEADERS: process.env.ORIGIN_REQUEST_HEADERS,
+        EXPOSE_PROXY_FINGERPRINT: process.env.EXPOSE_PROXY_FINGERPRINT,
     }
 
     if (domainMap) {
