@@ -1,3 +1,4 @@
+import { setImmediate } from 'node:timers/promises'
 import { type Element as WasmElement, HTMLRewriter as WasmHTMLRewriter } from 'html-rewriter-wasm'
 import type {
     ContentOptions,
@@ -8,6 +9,10 @@ import type {
     RewriterElement,
 } from '@monetizationos/proxy'
 import { sanitizeHeadersForDecodedBody } from '../sanitizeHeaders.js'
+
+// A WASM write runs synchronously, so one write of a 2 MB page would hold the event loop for tens
+// of ms. Slicing and yielding between slices lets other requests run, at no measurable cost.
+const WRITE_SLICE_BYTES = 16 * 1024
 
 /**
  * WASM (lol-html) backed HtmlRewriterAdapter for Node.js.
@@ -42,22 +47,19 @@ class LolHtmlSession implements HtmlRewriterSession {
         })
     }
 
+    // Handlers return the core's result as is: html-rewriter-wasm only suspends through asyncify for a
+    // returned Promise, which is far slower than a sync call. Called as methods, since some use `this`.
     on(selector: string, handlers: ElementHandlers): this {
         this.rewriter.on(selector, {
-            element: handlers.element
-                ? async (element) => {
-                      await handlers.element?.(adaptElement(element))
-                  }
-                : undefined,
+            element: handlers.element ? (element) => handlers.element?.(adaptElement(element)) : undefined,
             text: handlers.text
-                ? async (text) => {
-                      await handlers.text?.({
+                ? (text) =>
+                      handlers.text?.({
                           text: text.text,
                           lastInTextNode: text.lastInTextNode,
                           removed: text.removed,
                           remove: () => text.remove(),
                       })
-                  }
                 : undefined,
         })
         return this
@@ -75,12 +77,14 @@ class LolHtmlSession implements HtmlRewriterSession {
         const stream = new ReadableStream<Uint8Array>({
             async start(controller) {
                 try {
-                    const body = await response.text()
-                    await rewriter.write(new TextEncoder().encode(body))
-                    await rewriter.end()
-                    for (const chunk of outputChunks) {
-                        controller.enqueue(chunk)
+                    const body = new TextEncoder().encode(await response.text())
+                    for (let offset = 0; offset < body.length; offset += WRITE_SLICE_BYTES) {
+                        if (offset > 0) await setImmediate()
+                        await rewriter.write(body.subarray(offset, offset + WRITE_SLICE_BYTES))
                     }
+                    await rewriter.end()
+                    // lol-html emits output per token, and a stream chunk costs far more than the copy.
+                    if (outputChunks.length > 0) controller.enqueue(Buffer.concat(outputChunks.splice(0)))
                     controller.close()
                 } catch (error) {
                     controller.error(error)
@@ -132,9 +136,7 @@ const adaptElement = (element: WasmElement): RewriterElement => ({
         element.remove()
     },
     onEndTag: (callback: () => void | Promise<void>) => {
-        element.onEndTag(async () => {
-            await callback()
-        })
+        element.onEndTag(() => callback())
     },
 })
 
