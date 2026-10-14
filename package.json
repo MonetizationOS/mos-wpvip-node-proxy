@@ -4,7 +4,7 @@
     "description": "MonetizationOS Node.js proxy middleware for WordPress VIP",
     "packageManager": "pnpm@10.12.1",
     "scripts": {
-        "build": "tsc --noEmit && esbuild src/server.ts src/index.ts --bundle --platform=node --format=cjs --outdir=dist --external:html-rewriter-wasm",
+        "build": "tsc --noEmit && esbuild src/server.ts src/index.ts --bundle --platform=node --format=cjs --outdir=dist && cp vendor/lol-html/dist/lol_html_bg.wasm dist/",
         "start": "node dist/server.js",
         "dev": "node --env-file=.env dist/server.js",
         "dev:multi-domain": "node --env-file=.env dist/server.js --domain-map ./config/domain-map.json",
@@ -15,7 +15,6 @@
         "@monetizationos/proxy": "1.5.0",
         "@types/node": "^25.9.1",
         "esbuild": "^0.28.0",
-        "html-rewriter-wasm": "^0.4.1",
         "typescript": "^6.0.3"
     },
     "devDependencies": {

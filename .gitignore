@@ -14,7 +14,7 @@ node_modules/
 .next
 
 # TypeScript build output (generated at deploy time by pnpm run build)
-dist/
+/dist/
 
 # Local environment variables (contains secrets)
 .env

@@ -9,7 +9,7 @@
 
 This proxy includes handling for both HTTP response modification and CSS-targeted Components for content modifications including: removal/truncation, displaying offerings, and custom messaging.
 
-The shared proxy pipeline is provided by [`@monetizationos/proxy`](https://www.npmjs.com/package/@monetizationos/proxy). This repository contains the Node.js HTTP server entrypoint, environment variable mapping, and Node-specific adapters for `html-rewriter-wasm` and WordPress VIP client metadata.
+The shared proxy pipeline is provided by [`@monetizationos/proxy`](https://www.npmjs.com/package/@monetizationos/proxy). This repository contains the Node.js HTTP server entrypoint, environment variable mapping, and Node-specific adapters for HTML rewriting (Cloudflare's lol-html built to WASM, in [`vendor/lol-html`](vendor/lol-html)) and WordPress VIP client metadata.
 
 Read more about using MonetizationOS at [docs.monetizationos.com](https://docs.monetizationos.com).
 

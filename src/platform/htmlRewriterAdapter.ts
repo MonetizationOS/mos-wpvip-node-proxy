@@ -1,30 +1,36 @@
 import { setImmediate } from 'node:timers/promises'
-import { type Element as WasmElement, HTMLRewriter as WasmHTMLRewriter } from 'html-rewriter-wasm'
-import type {
-    ContentOptions,
-    ElementHandlers,
-    HtmlRewriterAdapter,
-    HtmlRewriterCapabilities,
-    HtmlRewriterSession,
-    RewriterElement,
-} from '@monetizationos/proxy'
+import type { ElementHandlers, HtmlRewriterAdapter, HtmlRewriterCapabilities, HtmlRewriterSession } from '@monetizationos/proxy'
+import { Element, type ElementContentHandlers, type EndTag, HTMLRewriter, type TextChunk } from '../../vendor/lol-html/dist/lol_html.js'
 import { sanitizeHeadersForDecodedBody } from '../sanitizeHeaders.js'
 
 // A WASM write runs synchronously, so one write of a 2 MB page would hold the event loop for tens
 // of ms. Slicing and yielding between slices lets other requests run, at no measurable cost.
 const WRITE_SLICE_BYTES = 16 * 1024
 
+// Each handler argument owns a small WASM allocation that only free() or a rare GC finaliser
+// releases, so without this a 300 KB page leaks ~200 KB. They are only valid during the handler
+// anyway, as on Cloudflare.
+const freeAfter =
+    <T extends { free(): void }>(handler: (arg: T) => unknown) =>
+    (arg: T) => {
+        try {
+            handler(arg)
+        } finally {
+            arg.free()
+        }
+    }
+
+const onEndTag = Element.prototype.onEndTag
+Element.prototype.onEndTag = function (this: Element, handler: (endTag: EndTag) => unknown) {
+    onEndTag.call(this, freeAfter(handler))
+}
+
 /**
- * WASM (lol-html) backed HtmlRewriterAdapter for Node.js.
+ * lol-html backed HtmlRewriterAdapter for Node.js, using Cloudflare's lol-html JS API built to
+ * WASM (see vendor/lol-html). Handlers must be synchronous, as the core's are.
  *
- * Wraps html-rewriter-wasm to satisfy the platform-agnostic HtmlRewriterAdapter interface
- * expected by @monetizationos/proxy. transform() returns a Response immediately with a
- * streaming body so the interface contract is met synchronously; the actual WASM rewriting
- * runs as the body is consumed.
- *
- * Content-Encoding / Content-Length / Transfer-Encoding headers are stripped from the
- * transformed response because the body is decoded text — keeping them would cause
- * ERR_CONTENT_DECODING_FAILED in browsers.
+ * transform() returns a Response immediately; rewriting runs as its body is consumed.
+ * Content-Encoding, Content-Length and Transfer-Encoding are dropped because the body is decoded.
  */
 export class LolHtmlRewriterAdapter implements HtmlRewriterAdapter {
     readonly capabilities: HtmlRewriterCapabilities = { onEndTag: true, nthChild: true }
@@ -35,32 +41,18 @@ export class LolHtmlRewriterAdapter implements HtmlRewriterAdapter {
 }
 
 class LolHtmlSession implements HtmlRewriterSession {
-    private readonly outputChunks: Uint8Array[] = []
-    private readonly rewriter: WasmHTMLRewriter
+    private readonly output: Uint8Array[] = []
+    // The vendored build hands over output once per write, not per token.
+    private readonly rewriter = new HTMLRewriter('utf-8', (chunk) => this.output.push(chunk))
     private consumed = false
 
-    constructor() {
-        this.rewriter = new WasmHTMLRewriter((chunk) => {
-            if (chunk.byteLength > 0) {
-                this.outputChunks.push(new Uint8Array(chunk))
-            }
-        })
-    }
-
-    // Handlers return the core's result as is: html-rewriter-wasm only suspends through asyncify for a
-    // returned Promise, which is far slower than a sync call. Called as methods, since some use `this`.
+    // The vendored elements and text chunks match the core's interfaces. Handlers are called as
+    // methods, since some of the core's use `this`.
     on(selector: string, handlers: ElementHandlers): this {
+        const h = handlers as unknown as Required<ElementContentHandlers>
         this.rewriter.on(selector, {
-            element: handlers.element ? (element) => handlers.element?.(adaptElement(element)) : undefined,
-            text: handlers.text
-                ? (text) =>
-                      handlers.text?.({
-                          text: text.text,
-                          lastInTextNode: text.lastInTextNode,
-                          removed: text.removed,
-                          remove: () => text.remove(),
-                      })
-                : undefined,
+            element: handlers.element ? freeAfter((el: Element) => h.element(el)) : undefined,
+            text: handlers.text ? freeAfter((chunk: TextChunk) => h.text(chunk)) : undefined,
         })
         return this
     }
@@ -71,8 +63,7 @@ class LolHtmlSession implements HtmlRewriterSession {
         }
         this.consumed = true
 
-        const rewriter = this.rewriter
-        const outputChunks = this.outputChunks
+        const { rewriter, output } = this
 
         const stream = new ReadableStream<Uint8Array>({
             async start(controller) {
@@ -80,11 +71,11 @@ class LolHtmlSession implements HtmlRewriterSession {
                     const body = new TextEncoder().encode(await response.text())
                     for (let offset = 0; offset < body.length; offset += WRITE_SLICE_BYTES) {
                         if (offset > 0) await setImmediate()
-                        await rewriter.write(body.subarray(offset, offset + WRITE_SLICE_BYTES))
+                        rewriter.write(body.subarray(offset, offset + WRITE_SLICE_BYTES))
                     }
-                    await rewriter.end()
-                    // lol-html emits output per token, and a stream chunk costs far more than the copy.
-                    if (outputChunks.length > 0) controller.enqueue(Buffer.concat(outputChunks.splice(0)))
+                    rewriter.end()
+                    // Output arrives once per slice; one copy is cheaper than many stream chunks.
+                    if (output.length > 0) controller.enqueue(output.length === 1 ? output[0] : Buffer.concat(output))
                     controller.close()
                 } catch (error) {
                     controller.error(error)
@@ -101,44 +92,3 @@ class LolHtmlSession implements HtmlRewriterSession {
         })
     }
 }
-
-const adaptElement = (element: WasmElement): RewriterElement => ({
-    get removed() {
-        return element.removed
-    },
-    get tagName() {
-        return element.tagName
-    },
-    getAttribute: (name: string) => element.getAttribute(name),
-    hasAttribute: (name: string) => element.hasAttribute(name),
-    setAttribute: (name: string, value: string) => {
-        element.setAttribute(name, value)
-    },
-    removeAttribute: (name: string) => {
-        element.removeAttribute(name)
-    },
-    before: (content: string, options?: ContentOptions) => {
-        element.before(content, toWasmOptions(options))
-    },
-    after: (content: string, options?: ContentOptions) => {
-        element.after(content, toWasmOptions(options))
-    },
-    prepend: (content: string, options?: ContentOptions) => {
-        element.prepend(content, toWasmOptions(options))
-    },
-    append: (content: string, options?: ContentOptions) => {
-        element.append(content, toWasmOptions(options))
-    },
-    replace: (content: string, options?: ContentOptions) => {
-        element.replace(content, toWasmOptions(options))
-    },
-    remove: () => {
-        element.remove()
-    },
-    onEndTag: (callback: () => void | Promise<void>) => {
-        element.onEndTag(() => callback())
-    },
-})
-
-const toWasmOptions = (options?: ContentOptions): { html?: boolean } | undefined =>
-    options?.html === undefined ? undefined : { html: options.html }

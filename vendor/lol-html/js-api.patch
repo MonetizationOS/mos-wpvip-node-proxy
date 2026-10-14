@@ -1,0 +1,137 @@
+--- a/js-api/src/html_rewriter.rs
++++ b/js-api/src/html_rewriter.rs
+@@ -15,22 +15,16 @@
+     }
+ }
+ 
+-struct JsOutputSink(JsFunction);
++// lol-html emits output per token. Crossing into JS for each is most of the cost of a rewrite, so
++// output is buffered here and handed to JS once per write() and end().
++type OutputBuffer = std::rc::Rc<std::cell::RefCell<Vec<u8>>>;
+ 
+-impl JsOutputSink {
+-    fn new(func: &JsFunction) -> Self {
+-        Self(func.clone())
+-    }
+-}
++struct JsOutputSink(OutputBuffer);
+ 
+ impl OutputSink for JsOutputSink {
+     #[inline]
+     fn handle_chunk(&mut self, chunk: &[u8]) {
+-        let this = JsValue::NULL;
+-        let chunk = Uint8Array::from(chunk);
+-
+-        // NOTE: the error is handled in the JS wrapper.
+-        self.0.call1(&this, &chunk).unwrap();
++        self.0.borrow_mut().extend_from_slice(chunk);
+     }
+ }
+ 
+@@ -45,7 +39,7 @@
+ }
+ 
+ #[wasm_bindgen]
+-pub struct HTMLRewriter(RewriterState);
++pub struct HTMLRewriter(RewriterState, OutputBuffer, JsFunction);
+ 
+ #[wasm_bindgen]
+ impl HTMLRewriter {
+@@ -59,11 +53,16 @@
+             .and_then(AsciiCompatibleEncoding::new)
+             .ok_or_else(|| JsError::new("Invalid encoding"))?;
+ 
+-        Ok(Self(RewriterState::Before {
+-            output_sink: JsOutputSink::new(output_sink),
+-            // TODO: accept options bag and parse out here
+-            settings: Settings::new().with_encoding(encoding),
+-        }))
++        let buffer = OutputBuffer::default();
++        Ok(Self(
++            RewriterState::Before {
++                output_sink: JsOutputSink(buffer.clone()),
++                // TODO: accept options bag and parse out here
++                settings: Settings::new().with_encoding(encoding),
++            },
++            buffer,
++            output_sink.clone(),
++        ))
+     }
+ 
+     fn inner_mut(&mut self) -> JsResult<&mut NativeHTMLRewriter<'static, JsOutputSink>> {
+@@ -125,13 +124,30 @@
+     }
+ 
+     pub fn write(&mut self, chunk: &[u8]) -> JsResult<()> {
+-        self.inner_mut()?.write(chunk).map_err(map_err)
++        let result = self.inner_mut()?.write(chunk).map_err(map_err);
++        self.flush()?;
++        result
+     }
+ 
+     pub fn end(&mut self) -> JsResult<()> {
+-        match std::mem::replace(&mut self.0, RewriterState::After) {
++        let result = match std::mem::replace(&mut self.0, RewriterState::After) {
+             RewriterState::During(inner) => inner.end().map_err(map_err),
+             _ => Ok(()),
+-        }
++        };
++        self.flush()?;
++        result
+     }
++
++    fn flush(&mut self) -> JsResult<()> {
++        let chunk = {
++            let mut buffer = self.1.borrow_mut();
++            if buffer.is_empty() {
++                return Ok(());
++            }
++            let chunk = Uint8Array::from(&buffer[..]);
++            buffer.clear();
++            chunk
++        };
++        self.2.call1(&JsValue::NULL, &chunk).map(|_| ())
++    }
+ }
+--- a/js-api/src/element.rs
++++ b/js-api/src/element.rs
+@@ -140,13 +140,18 @@
+ 
+     #[wasm_bindgen(js_name=onEndTag)]
+     pub fn on_end_tag(&mut self, handler: JsFunction) -> JsResult<()> {
+-        if let Some(handlers) = self.0.get_mut()?.end_tag_handlers() {
+-            handlers.push(make_handler!(
+-                handler,
+-                EndTag,
+-                lol_html_native::EndTagHandler
+-            ));
+-        }
++        // Void elements have no end tag. Throw, as Cloudflare's HTMLRewriter does, rather than
++        // silently never calling the handler.
++        let handlers = self
++            .0
++            .get_mut()?
++            .end_tag_handlers()
++            .ok_or_else(|| JsValue::from(js_sys::TypeError::new("No end tag.")))?;
++        handlers.push(make_handler!(
++            handler,
++            EndTag,
++            lol_html_native::EndTagHandler
++        ));
+ 
+         Ok(())
+     }
+--- a/js-api/Cargo.toml
++++ b/js-api/Cargo.toml
+@@ -21,3 +21,11 @@
+ thiserror = "2.0"
+ wasm-bindgen = "0.2.120"
+ 
++
++[workspace]
++
++[profile.release]
++opt-level = 3
++lto = true
++codegen-units = 1
++panic = "abort"
