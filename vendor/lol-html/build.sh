@@ -1,10 +1,10 @@
 #!/usr/bin/env bash
 # Rebuilds dist/ from Cloudflare's lol-html JS API with js-api.patch applied, in a pinned
-# container. Needs Docker. Usage: vendor/lol-html/build.sh
+# linux/arm64 container (emulated on x86 hosts). Needs Docker. Usage: vendor/lol-html/build.sh
 set -euo pipefail
 cd "$(dirname "$0")"
 
-docker run --rm --platform linux/arm64 -v "$PWD:/vendor" -v lol-html-target:/target rust:1.99.0-bookworm bash -euo pipefail -c '
+docker run --rm --platform linux/arm64 -v "$PWD:/vendor" -v lol-html-target:/target rust:1.99.0-bookworm@sha256:114c7a4425406451c2866b6aafe69fe29b1b298832db1277d411ac73c82d04d6 bash -euo pipefail -c '
     LOL_HTML=3.0.1
     LOL_HTML_SHA256=76b29b987ede8ea8971edf4a07a0e2edf5a1dfe21a8d2c073f6534d01b2f5c9f
     BINARYEN=133
