@@ -5,6 +5,9 @@
   <h1>MonetizationOS WordPress VIP Node Proxy</h1>
 </div>
 
+> [!WARNING]
+> **Deprecated.** This proxy is replaced by the [MonetizationOS WordPress VIP Edge Worker Proxy](https://github.com/MonetizationOS/vip-edge-workers-proxy), which runs as a [WordPress VIP edge worker](https://docs.wpvip.com/infrastructure/edge-servers/edge-workers/) instead of a Node.js application. This repository is no longer maintained and will be archived.
+
 [MonetizationOS](https://monetizationos.com) powers monetization for human and bot users alike. Use this Node.js proxy on [WordPress VIP](https://wpvip.com/) to sit in front of your origin, fetch surface decisions from the MOS API, and rewrite HTML responses with the appropriate content behaviors.
 
 This proxy includes handling for both HTTP response modification and CSS-targeted Components for content modifications including: removal/truncation, displaying offerings, and custom messaging.
